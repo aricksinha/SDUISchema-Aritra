@@ -1,0 +1,24 @@
+{
+  "screenId": "home-v1",
+  "structureVersion": 1,
+  "components": {
+    "productCard": {
+      "id": "productCard-template",
+      "type": "card",
+      "style": { "backgroundColorToken": "surfacePrimary", "radiusToken": "radiusMd" },
+      "children": []
+    }
+  },
+  "root": {
+    "id": "root",
+    "type": "stack",
+    "layout": { "direction": "vertical", "spacingToken": "spacingMd" },
+    "children": [
+      {
+        "id": "title",
+        "type": "text",
+        "props": { "content": "Welcome back" }
+      }
+    ]
+  }
+}

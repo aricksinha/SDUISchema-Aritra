@@ -1,0 +1,37 @@
+{
+  "screenId": "home-v1",
+  "structureVersion": 1,
+  "components": {
+    "productCard": {
+      "id": "productCard-template",
+      "type": "card",
+      "style": { "backgroundColorToken": "surfacePrimary", "radiusToken": "radiusMd" },
+      "children": []
+    },
+    "brokenTemplate": {
+      "type": "card"
+    }
+  },
+  "root": {
+    "id": "root",
+    "type": "stack",
+    "layout": { "direction": "vertical", "spacingToken": "spacingMd" },
+    "children": [
+      {
+        "id": "title",
+        "type": "text",
+        "props": { "content": "Welcome back" }
+      },
+      {
+        "id": "degraded-style-node",
+        "type": "text",
+        "style": "this-should-be-an-object-not-a-string",
+        "props": { "content": "Still renders, just without style" }
+      },
+      {
+        "type": "text",
+        "props": { "content": "Missing id — this node must be quarantined" }
+      }
+    ]
+  }
+}
