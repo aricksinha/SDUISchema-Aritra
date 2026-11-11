@@ -27,10 +27,10 @@ public struct StaticTheme: Theme {
         self.radii = radii
     }
     
-    func color(for token: ColorToken) -> Color { colors[token] ?? .clear }
-    func font(for token: FontToken) -> Font { fonts[token] ?? .body }
-    func spacing(for token: SpacingToken) -> CGFloat { spacings[token] ?? 0 }
-    func radius(for token: RadiusToken) -> CGFloat { radii[token] ?? 0 }
+    public func color(for token: ColorToken) -> Color { colors[token] ?? .clear }
+    public func font(for token: FontToken) -> Font { fonts[token] ?? .body }
+    public func spacing(for token: SpacingToken) -> CGFloat { spacings[token] ?? 0 }
+    public func radius(for token: RadiusToken) -> CGFloat { radii[token] ?? 0 }
 }
 
 /// A minimal starter catalog so the SDK renders something sane out
