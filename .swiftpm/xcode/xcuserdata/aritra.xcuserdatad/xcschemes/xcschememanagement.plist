@@ -27,7 +27,22 @@
 	</dict>
 	<key>SuppressBuildableAutocreation</key>
 	<dict>
+		<key>SDUIDesignSystem</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
 		<key>SDUIKit</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>SDUISchema</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>SDUISchemaTests</key>
 		<dict>
 			<key>primary</key>
 			<true/>
