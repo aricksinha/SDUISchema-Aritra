@@ -9,17 +9,23 @@ import PackageDescription
 // swift-tools-version:5.9
 
 let package = Package(
-    name: "SDUIKit",   
+    name: "SDUIKit",
     platforms: [.iOS(.v15), .macOS(.v12), .tvOS(.v15), .watchOS(.v8)],
     products: [
         .library(name: "SDUISchema", targets: ["SDUISchema"]),
-        .library(name: "SDUIDesignSystem", targets: ["SDUIDesignSystem"])
+        .library(name: "SDUIDesignSystem", targets: ["SDUIDesignSystem"]),
+        .library(name: "SDUIRendering", targets: ["SDUIRendering"])
     ],
     targets: [
         .target(name: "SDUISchema"),
+        .target(name: "SDUIDesignSystem", dependencies: ["SDUISchema"]),
         .target(
-            name: "SDUIDesignSystem",
-            dependencies: ["SDUISchema"]   // ← this is the whole change; sibling target, referenced by name only
+            name: "SDUIRendering",                                      // new
+            dependencies: ["SDUISchema", "SDUIDesignSystem"]
+        ),
+        .testTarget(
+            name: "SDUIRenderingTests",                                 // new
+            dependencies: ["SDUIRendering", "SDUISchema", "SDUIDesignSystem"]
         ),
         .testTarget(name: "SDUISchemaTests", dependencies: ["SDUISchema"], resources: [.copy("Fixtures")]),
         .testTarget(name: "SDUIDesignSystemTests", dependencies: ["SDUIDesignSystem"])
