@@ -29,7 +29,7 @@ final class ResolvedStyleTests: XCTestCase {
         let resolved = ResolvedStyle.resolve(styleRef, using: theme)
 
         XCTAssertEqual(resolved.backgroundColor, .red)
-        XCTAssertEqual(resolved.textColor, .black)
+        XCTAssertEqual(resolved.textColor, Color.black)
         XCTAssertEqual(resolved.padding, 8)
         XCTAssertEqual(resolved.radius, 4)
     }
@@ -38,5 +38,6 @@ final class ResolvedStyleTests: XCTestCase {
         let resolved = ResolvedStyle.resolve(nil, using: StaticTheme())
         XCTAssertEqual(resolved.backgroundColor, .clear)
         XCTAssertEqual(resolved.padding, 0)
+        XCTAssertNil(resolved.textColor)
     }
 }

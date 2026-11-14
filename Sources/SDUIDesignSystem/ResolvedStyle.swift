@@ -16,7 +16,7 @@ import SDUISchema
 /// This struct is the one and only place a raw `String` from`SDUISchema` becomes a `Token<Category>`. Every node renderer in`SDUIRendering` consumes a `ResolvedStyle`, never a `StyleRef`  directly — so a renderer never touches `Theme` or a raw token string its is exactly what keeps renderers trivial to unit test with fixed inputs instead of a live `Theme`.
 public struct ResolvedStyle: Equatable {
     public let backgroundColor: Color
-    public let textColor: Color
+    public let textColor: Color?
     public let font: Font
     public let padding: CGFloat
     public let radius: CGFloat
@@ -25,7 +25,7 @@ public struct ResolvedStyle: Equatable {
     public static func resolve(_ styleRef: StyleRef?, using theme: Theme) -> ResolvedStyle {
         ResolvedStyle(
             backgroundColor: theme.color(for: styleRef?.backgroundColorToken.map { ColorToken($0) }),
-            textColor: theme.color(for: styleRef?.textColorToken.map { ColorToken($0) }),
+            textColor: styleRef?.textColorToken.map { theme.color(for: ColorToken($0)) },
             font: theme.font(for: styleRef?.fontToken.map { FontToken($0) }),
             padding: theme.spacing(for: styleRef?.paddingToken.map { SpacingToken($0) }),
             radius: theme.radius(for: styleRef?.radiusToken.map { RadiusToken($0) }),
