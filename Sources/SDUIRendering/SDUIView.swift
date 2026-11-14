@@ -9,7 +9,7 @@ import SwiftUI
 import SDUISchema
 import SDUIDesignSystem
 
-struct SDUIView: View {
+public struct SDUIView: View {
     private let screen: Screen
     private let theme: Theme
     private let registry: RendererRegistry

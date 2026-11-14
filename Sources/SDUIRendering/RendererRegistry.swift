@@ -17,7 +17,9 @@ public struct RendererRegistry {
     private var renderers: [String: NodeRenderer]
     private let fallback: NodeRenderer
     
-    init(fallback: NodeRenderer = UnknownNodePlaceholder()) {
+    /// Public so a host Composition Root can build the registry.
+    /// The demo app is the first consumer; it must not need `@testable`.
+    public init(fallback: NodeRenderer = UnknownNodePlaceholder()) {
         self.renderers = [:]
         self.fallback = fallback
     }
