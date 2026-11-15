@@ -79,20 +79,122 @@ private struct PreviewColumn: View {
             }
         }
         .sheet(isPresented: $isShowingPropertiesEditor) {
-            TextPropertiesEditor(json: json) { updatedJSON in
-                json = updatedJSON
+            if let screen = decode(json) {
+                DemoPropertiesEditor.make(for: screen.root.type, json: json) { updatedJSON in
+                    json = updatedJSON
+                }
             }
         }
     }
 
     private var canEditProperties: Bool {
         guard let screen = decode(json) else { return false }
-        return screen.root.type == "text"
+        return DemoPropertiesEditor.supports(screen.root.type)
     }
 
     // D1 only: D2 replaces this with a result type that carries errors.
     private func decode(_ json: String) -> Screen? {
         try? JSONDecoder().decode(Screen.self, from: Data(json.utf8))
+    }
+}
+
+private enum DemoPropertiesEditor {
+    static func supports(_ componentType: String) -> Bool {
+        DemoComponentType(rawValue: componentType) != nil
+    }
+
+    @ViewBuilder
+    static func make(
+        for componentType: String,
+        json: String,
+        onSave: @escaping (String) -> Void
+    ) -> some View {
+        switch DemoComponentType(rawValue: componentType) {
+        case .some(.text):
+            TextPropertiesEditor(json: json, onSave: onSave)
+        case .some(.stack):
+            StackPropertiesEditor(json: json, onSave: onSave)
+        case .none:
+            Text("Property editing is not available for this component.")
+        }
+    }
+}
+
+private struct StackPropertiesEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: StackPropertiesDraft
+
+    private let json: String
+    private let onSave: (String) -> Void
+
+    init(json: String, onSave: @escaping (String) -> Void) {
+        self.json = json
+        self.onSave = onSave
+        _draft = State(initialValue: StackPropertiesDraft(json: json))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Choose how this stack arranges its children. The preview changes after you save.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Layout") {
+                    Picker("Direction", selection: $draft.direction) {
+                        ForEach(PropertyTokenOption.directions) { option in
+                            Text(option.title).tag(option.value)
+                        }
+                    }
+
+                    Picker("Alignment", selection: $draft.alignment) {
+                        ForEach(PropertyTokenOption.alignments(for: draft.direction)) { option in
+                            Text(option.title).tag(option.value)
+                        }
+                    }
+
+                    Picker("Spacing", selection: $draft.spacingToken) {
+                        ForEach(PropertyTokenOption.spacing) { option in
+                            Text(option.title).tag(option.value)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Edit Stack Properties")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button(action: save) {
+                    Text("Save Changes")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding()
+                .background(.regularMaterial)
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .onChange(of: draft.direction) { newDirection in
+            let options = PropertyTokenOption.alignments(for: newDirection)
+            if !options.contains(where: { $0.value == draft.alignment }) {
+                draft.alignment = ""
+            }
+        }
+    }
+
+    private func save() {
+        guard let updatedJSON = draft.applying(to: json) else { return }
+        onSave(updatedJSON)
+        dismiss()
     }
 }
 
@@ -275,6 +377,62 @@ private struct TextPropertiesDraft {
     }
 }
 
+private struct StackPropertiesDraft {
+    var direction: String
+    var alignment: String
+    var spacingToken: String
+
+    init(json: String) {
+        let data = Data(json.utf8)
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let root = object?["root"] as? [String: Any]
+        let layout = root?["layout"] as? [String: Any] ?? [:]
+        let candidateDirection = layout["direction"] as? String ?? "vertical"
+        let direction = PropertyTokenOption.directions.contains { $0.value == candidateDirection }
+            ? candidateDirection
+            : "vertical"
+        let alignment = layout["alignment"] as? String ?? ""
+        let allowedAlignments = PropertyTokenOption.alignments(for: direction).map(\.value)
+
+        self.direction = direction
+        self.alignment = allowedAlignments.contains(alignment) ? alignment : ""
+        spacingToken = layout["spacingToken"] as? String ?? ""
+    }
+
+    func applying(to json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              var root = object["root"] as? [String: Any],
+              root["type"] as? String == "stack",
+              PropertyTokenOption.directions.contains(where: { $0.value == direction }) else {
+            return nil
+        }
+
+        var layout = root["layout"] as? [String: Any] ?? [:]
+        layout["direction"] = direction
+        set(alignment, for: "alignment", in: &layout)
+        set(spacingToken, for: "spacingToken", in: &layout)
+        root["layout"] = layout
+        object["root"] = root
+
+        guard let updatedData = try? JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else {
+            return nil
+        }
+        return String(data: updatedData, encoding: .utf8)
+    }
+
+    private func set(_ value: String, for key: String, in object: inout [String: Any]) {
+        if value.isEmpty {
+            object.removeValue(forKey: key)
+        } else {
+            object[key] = value
+        }
+    }
+}
+
 private struct PropertyTokenOption: Identifiable {
     let title: String
     let value: String
@@ -310,6 +468,39 @@ private struct PropertyTokenOption: Identifiable {
         PropertyTokenOption(title: "Medium", value: "radiusMd"),
         PropertyTokenOption(title: "Large", value: "radiusLg")
     ]
+
+    static let directions = [
+        PropertyTokenOption(title: "Vertical", value: "vertical"),
+        PropertyTokenOption(title: "Horizontal", value: "horizontal"),
+        PropertyTokenOption(title: "Overlay", value: "overlay")
+    ]
+
+    static func alignments(for direction: String) -> [PropertyTokenOption] {
+        let alignments: [PropertyTokenOption]
+        switch direction {
+        case "vertical":
+            alignments = [
+                PropertyTokenOption(title: "Leading", value: "leading"),
+                PropertyTokenOption(title: "Center", value: "center"),
+                PropertyTokenOption(title: "Trailing", value: "trailing")
+            ]
+        case "horizontal":
+            alignments = [
+                PropertyTokenOption(title: "Top", value: "top"),
+                PropertyTokenOption(title: "Center", value: "center"),
+                PropertyTokenOption(title: "Bottom", value: "bottom")
+            ]
+        default:
+            alignments = [
+                PropertyTokenOption(title: "Leading", value: "leading"),
+                PropertyTokenOption(title: "Center", value: "center"),
+                PropertyTokenOption(title: "Trailing", value: "trailing"),
+                PropertyTokenOption(title: "Top", value: "top"),
+                PropertyTokenOption(title: "Bottom", value: "bottom")
+            ]
+        }
+        return [PropertyTokenOption(title: "Default", value: "")] + alignments
+    }
 }
 
 private struct JSONColumn: View {
