@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Foundation
 import SDUISchema
 import SDUIDesignSystem
 import SDUIRendering
@@ -114,6 +115,8 @@ private enum DemoPropertiesEditor {
             TextPropertiesEditor(json: json, onSave: onSave)
         case .some(.stack):
             StackPropertiesEditor(json: json, onSave: onSave)
+        case .some(.image):
+            ImagePropertiesEditor(json: json, onSave: onSave)
         case .none:
             Text("Property editing is not available for this component.")
         }
@@ -193,6 +196,103 @@ private struct StackPropertiesEditor: View {
 
     private func save() {
         guard let updatedJSON = draft.applying(to: json) else { return }
+        onSave(updatedJSON)
+        dismiss()
+    }
+}
+
+private struct ImagePropertiesEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: ImagePropertiesDraft
+
+    private let json: String
+    private let onSave: (String) -> Void
+
+    init(json: String, onSave: @escaping (String) -> Void) {
+        self.json = json
+        self.onSave = onSave
+        _draft = State(initialValue: ImagePropertiesDraft(json: json))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Choose an image address and how it should fit. The preview changes after you save.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Image") {
+                    TextField("Image URL", text: $draft.url)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+
+                    Picker("Content mode", selection: $draft.contentMode) {
+                        Text("Fit — show the whole image").tag("fit")
+                        Text("Fill — crop to fill").tag("fill")
+                    }
+
+                    if !draft.hasValidURL {
+                        Text("Enter a valid HTTP or HTTPS image URL.")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    tokenPicker("Background", selection: $draft.backgroundColorToken, options: PropertyTokenOption.colors)
+                    tokenPicker("Padding", selection: $draft.paddingToken, options: PropertyTokenOption.spacing)
+                    tokenPicker("Corner radius", selection: $draft.radiusToken, options: PropertyTokenOption.radii)
+                    tokenPicker("Border color", selection: $draft.borderColorToken, options: PropertyTokenOption.colors)
+                } header: {
+                    Text("Box style")
+                } footer: {
+                    Text("These options use the demo theme’s available design tokens.")
+                }
+            }
+            .navigationTitle("Edit Image Properties")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button(action: save) {
+                    Text("Save Changes")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding()
+                .background(.regularMaterial)
+                .disabled(!draft.hasValidURL)
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func tokenPicker(
+        _ title: String,
+        selection: Binding<String>,
+        options: [PropertyTokenOption]
+    ) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(options) { option in
+                Text(option.title).tag(option.value)
+            }
+        }
+    }
+
+    private func save() {
+        guard draft.hasValidURL,
+              let updatedJSON = draft.applying(to: json) else {
+            return
+        }
         onSave(updatedJSON)
         dismiss()
     }
@@ -415,6 +515,89 @@ private struct StackPropertiesDraft {
         root["layout"] = layout
         object["root"] = root
 
+        guard let updatedData = try? JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else {
+            return nil
+        }
+        return String(data: updatedData, encoding: .utf8)
+    }
+
+    private func set(_ value: String, for key: String, in object: inout [String: Any]) {
+        if value.isEmpty {
+            object.removeValue(forKey: key)
+        } else {
+            object[key] = value
+        }
+    }
+}
+
+private struct ImagePropertiesDraft {
+    var url: String
+    var contentMode: String
+    var backgroundColorToken: String
+    var paddingToken: String
+    var radiusToken: String
+    var borderColorToken: String
+
+    private var trimmedURL: String {
+        url.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var hasValidURL: Bool {
+        guard let components = URLComponents(string: trimmedURL),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = components.host,
+              !host.isEmpty else {
+            return false
+        }
+        return true
+    }
+
+    init(json: String) {
+        let data = Data(json.utf8)
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let root = object?["root"] as? [String: Any]
+        let props = root?["props"] as? [String: Any] ?? [:]
+        let style = root?["style"] as? [String: Any] ?? [:]
+        let contentMode = props["contentMode"] as? String
+
+        url = props["url"] as? String ?? ""
+        self.contentMode = contentMode == "fill" ? "fill" : "fit"
+        backgroundColorToken = style["backgroundColorToken"] as? String ?? ""
+        paddingToken = style["paddingToken"] as? String ?? ""
+        radiusToken = style["radiusToken"] as? String ?? ""
+        borderColorToken = style["borderColorToken"] as? String ?? ""
+    }
+
+    func applying(to json: String) -> String? {
+        guard hasValidURL,
+              let data = json.data(using: .utf8),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              var root = object["root"] as? [String: Any],
+              root["type"] as? String == "image" else {
+            return nil
+        }
+
+        var props = root["props"] as? [String: Any] ?? [:]
+        props["url"] = trimmedURL
+        props["contentMode"] = contentMode
+        root["props"] = props
+
+        var style = root["style"] as? [String: Any] ?? [:]
+        set(backgroundColorToken, for: "backgroundColorToken", in: &style)
+        set(paddingToken, for: "paddingToken", in: &style)
+        set(radiusToken, for: "radiusToken", in: &style)
+        set(borderColorToken, for: "borderColorToken", in: &style)
+        if style.isEmpty {
+            root.removeValue(forKey: "style")
+        } else {
+            root["style"] = style
+        }
+
+        object["root"] = root
         guard let updatedData = try? JSONSerialization.data(
             withJSONObject: object,
             options: [.prettyPrinted, .sortedKeys]

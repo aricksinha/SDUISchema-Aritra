@@ -4,6 +4,7 @@ import SDUIRendering
 enum DemoComponentType: String, CaseIterable {
     case text
     case stack
+    case image
 
     func register(in registry: inout RendererRegistry) {
         switch self {
@@ -11,6 +12,9 @@ enum DemoComponentType: String, CaseIterable {
             registry.register(TextNodeRenderer(), for: rawValue)
         case .stack:
             registry.register(StackNodeRenderer(), for: rawValue)
+        case .image:
+            let imageProvider = AsyncImageViewProvider()
+            registry.register(ImageNodeRenderer(provider: imageProvider), for: rawValue)
         }
     }
 }

@@ -9,7 +9,8 @@ enum SampleCatalog {
             id: "stacks",
             title: "Stacks",
             samples: [verticalStack, horizontalStack, nestedStack]
-        )
+        ),
+        SampleSection(id: "images", title: "Images", samples: [image, standaloneImage])
     ]
 
     static var all: [ComponentSample] { sections.flatMap(\.samples) }
@@ -120,6 +121,46 @@ enum SampleCatalog {
                   { "id": "r1b", "type": "text", "props": { "content": "B" } }
                 ] }
             ]
+          }
+        }
+        """#
+    )
+    
+    private static let image = ComponentSample(
+        id: "image",
+        title: "Image with caption",
+        json: #"""
+        {
+          "screenId": "image-basic",
+          "structureVersion": 1,
+          "root": {
+            "id": "card", "type": "stack",
+            "layout": { "direction": "vertical", "spacingToken": "spacingMd" },
+            "style": { "paddingToken": "spacingLg" },
+            "children": [
+              { "id": "hero", "type": "image",
+                "props": { "url": "https://picsum.photos/600/400", "contentMode": "fill" } },
+              { "id": "caption", "type": "text", "props": { "content": "Loaded from a server URL" } }
+            ]
+          }
+        }
+        """#
+    )
+
+    private static let standaloneImage = ComponentSample(
+        id: "image-standalone",
+        title: "Image",
+        json: #"""
+        {
+          "screenId": "image-standalone",
+          "structureVersion": 1,
+          "root": {
+            "id": "hero",
+            "type": "image",
+            "props": {
+              "url": "https://picsum.photos/600/400",
+              "contentMode": "fill"
+            }
           }
         }
         """#

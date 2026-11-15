@@ -27,7 +27,7 @@ struct ImageProps: Equatable {
 public struct ImageNodeRenderer: NodeRenderer {
     private let provider: RemoteImageViewProviding
     
-    init(provider: RemoteImageViewProviding) {
+    public init(provider: RemoteImageViewProviding) {
         self.provider = provider
     }
     
