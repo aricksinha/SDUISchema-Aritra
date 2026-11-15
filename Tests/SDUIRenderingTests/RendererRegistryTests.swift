@@ -57,4 +57,12 @@ final class RendererRegistryTests: XCTestCase {
         
         XCTAssertEqual(resolved?.name, "custom-fallback")
     }
+    
+    func test_isRegistered_reportsOnlyExplicitRegistrations() {
+        var registry = RendererRegistry()
+        registry.register(StubRenderer(name: "text"), for: "text")
+
+        XCTAssertTrue(registry.isRegistered("text"))
+        XCTAssertFalse(registry.isRegistered("x-unknown"))
+    }
 }

@@ -21,5 +21,12 @@ func makeNodeView(
     let context = RenderContext(theme: theme) { child in
         makeNodeView(child, theme: theme, registry: registry)
     }
-    return registry.renderer(for: node.type).makeView(for: node, context: context)
+    let view = registry.renderer(for: node.type).makeView(for: node, context: context)
+
+    // Unknown types get no box. In release the placeholder is empty,
+    // and a padded, colored empty view would show up as a stray
+    // rectangle on a real user's screen.
+    guard registry.isRegistered(node.type),
+          let box = BoxStyle.resolve(node.style, using: theme) else { return view }
+    return AnyView(view.modifier(BoxStyleModifier(box: box)))
 }

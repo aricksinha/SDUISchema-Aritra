@@ -32,4 +32,9 @@ public struct RendererRegistry {
     public func renderer(for type: String) -> NodeRenderer {
         renderers[type] ?? fallback
     }
+    
+    /// Whether `type` has an explicitly registered renderer, as opposed  to resolving to the fallback.
+    public func isRegistered(_ type: String) -> Bool {
+        renderers[type] != nil
+    }
 }

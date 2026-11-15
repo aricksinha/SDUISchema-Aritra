@@ -4,7 +4,7 @@ import Foundation
 /// its samples here and nothing else changes.
 enum SampleCatalog {
     static let sections: [SampleSection] = [
-        SampleSection(id: "components", title: "Components", samples: [text])
+        SampleSection(id: "components", title: "Components", samples: [text, textBoxed])
     ]
 
     static var all: [ComponentSample] { sections.flatMap(\.samples) }
@@ -24,6 +24,30 @@ enum SampleCatalog {
             "id": "title",
             "type": "text",
             "style": { "textColorToken": "accent", "fontToken": "titleLarge" },
+            "props": { "content": "Hello from the server", "numberOfLines": 2 }
+          }
+        }
+        """#
+    )
+
+    private static let textBoxed = ComponentSample(
+        id: "text-boxed",
+        title: "Text with Box Style",
+        json: #"""
+        {
+          "screenId": "text-boxed",
+          "structureVersion": 1,
+          "root": {
+            "id": "title",
+            "type": "text",
+            "style": {
+              "textColorToken": "accent",
+              "fontToken": "titleLarge",
+              "backgroundColorToken": "surfaceSecondary",
+              "paddingToken": "spacingLg",
+              "radiusToken": "radiusMd",
+              "borderColorToken": "accent"
+            },
             "props": { "content": "Hello from the server", "numberOfLines": 2 }
           }
         }
