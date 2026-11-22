@@ -14,10 +14,16 @@ import SDUIDesignSystem
 public struct RenderContext {
     public let theme: Theme
     private let renderNode: (Node) -> AnyView
+    private let dispatchAction: (String) -> Void
     
-    public init(theme: Theme, renderNode: @escaping (Node) -> AnyView) {
+    public init(
+        theme: Theme,
+        renderNode: @escaping (Node) -> AnyView,
+        dispatchAction: @escaping (String) -> Void = { _ in }
+    ) {
         self.theme = theme
         self.renderNode = renderNode
+        self.dispatchAction = dispatchAction
     }
     
     public func render(_ node: Node) -> AnyView {
@@ -30,6 +36,11 @@ public struct RenderContext {
             guard let child = slot.node else { return nil }
             return RenderedChild(id: child.id, view: render(child))
         }
+    }
+    
+    /// Phase 4 replaces this with a typed dispatcher. For now it just forwards the node's `actionID` to whatever the host wired in
+    public func dispatch(actionID: String) { 
+        dispatchAction(actionID)
     }
 }
 

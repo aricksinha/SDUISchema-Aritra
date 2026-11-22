@@ -16,11 +16,16 @@ import SDUIDesignSystem
 func makeNodeView(
     _ node: Node,
     theme: Theme,
-    registry: RendererRegistry
+    registry: RendererRegistry,
+    onAction: @escaping (String) -> Void = { _ in }
 ) -> AnyView {
-    let context = RenderContext(theme: theme) { child in
-        makeNodeView(child, theme: theme, registry: registry)
-    }
+    let context = RenderContext(
+        theme: theme,
+        renderNode: { child in
+            makeNodeView(child, theme: theme, registry: registry, onAction: onAction)
+        },
+        dispatchAction: onAction
+    )
     let view = registry.renderer(for: node.type).makeView(for: node, context: context)
 
     // Unknown types get no box. In release the placeholder is empty,
