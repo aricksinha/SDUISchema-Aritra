@@ -9,9 +9,11 @@ struct DemoRootView: View {
     @State private var selection: ComponentSample.ID? = SampleCatalog.all.first?.id
     @State private var jsonText = SampleCatalog.all.first?.json ?? ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showingActionAlert = false
+    @State private var buttonActionMessage = ""
+    @State private var cartItemCount = 0
 
     private let theme = DemoCompositionRoot.makeTheme()
-    private let registry = DemoCompositionRoot.makeRegistry()
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -22,7 +24,9 @@ struct DemoRootView: View {
                 sample: SampleCatalog.sample(id: selection),
                 json: $jsonText,
                 theme: theme,
-                registry: registry
+                registry: DemoCompositionRoot.makeRegistry { actionID in
+                    handleButtonAction(actionID)
+                }
             )
                 .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 600)
         } detail: {
@@ -32,6 +36,27 @@ struct DemoRootView: View {
         .onChange(of: selection) { newSelection in
             jsonText = SampleCatalog.sample(id: newSelection)?.json ?? ""
         }
+        .alert("Button action", isPresented: $showingActionAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(buttonActionMessage)
+        }
+    }
+
+    private func handleButtonAction(_ actionID: String) {
+        switch DemoButtonAction(rawValue: actionID) {
+        case .some(.checkout):
+            buttonActionMessage = "Checkout requested. No payment is processed in this demo."
+        case .some(.addToCart):
+            cartItemCount += 1
+            let itemLabel = cartItemCount == 1 ? "item" : "items"
+            buttonActionMessage = "Added to cart. Cart now contains \(cartItemCount) \(itemLabel)."
+        case .some(.showMessage):
+            buttonActionMessage = "The demo action ran successfully."
+        case .none:
+            buttonActionMessage = "The demo received the custom action: \(actionID)."
+        }
+        showingActionAlert = true
     }
 }
 
@@ -117,6 +142,8 @@ private enum DemoPropertiesEditor {
             StackPropertiesEditor(json: json, onSave: onSave)
         case .some(.image):
             ImagePropertiesEditor(json: json, onSave: onSave)
+        case .some(.button):
+            ButtonPropertiesEditor(json: json, onSave: onSave)
         case .none:
             Text("Property editing is not available for this component.")
         }
@@ -293,6 +320,101 @@ private struct ImagePropertiesEditor: View {
               let updatedJSON = draft.applying(to: json) else {
             return
         }
+        onSave(updatedJSON)
+        dismiss()
+    }
+}
+
+private struct ButtonPropertiesEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: ButtonPropertiesDraft
+    @State private var selectedAction: String
+
+    private let json: String
+    private let onSave: (String) -> Void
+    private static let customActionSelection = "custom"
+
+    init(json: String, onSave: @escaping (String) -> Void) {
+        let draft = ButtonPropertiesDraft(json: json)
+        self.json = json
+        self.onSave = onSave
+        _draft = State(initialValue: draft)
+        _selectedAction = State(
+            initialValue: draft.actionID.isEmpty
+                ? ""
+                : (DemoButtonAction(rawValue: draft.actionID)?.rawValue ?? Self.customActionSelection)
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Button label", text: $draft.title)
+
+                    Picker("Icon", selection: $draft.systemImage) {
+                        ForEach(PropertyTokenOption.buttonIcons) { option in
+                            Text(option.title).tag(option.value)
+                        }
+                    }
+                } header: {
+                    Text("Label")
+                }
+
+                Section {
+                    Picker("When tapped", selection: $selectedAction) {
+                        Text("No action (static label)").tag("")
+                        ForEach(DemoButtonAction.allCases) { action in
+                            Text(action.title).tag(action.rawValue)
+                        }
+                        Text("Custom action ID").tag(Self.customActionSelection)
+                    }
+
+                    if selectedAction == Self.customActionSelection {
+                        TextField("Action ID", text: $draft.actionID)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                } header: {
+                    Text("Action")
+                } footer: {
+                    Text("Choose a demo action or enter a custom ID. The demo displays the selected action when tapped.")
+                }
+            }
+            .onChange(of: selectedAction) { newAction in
+                if newAction == Self.customActionSelection {
+                    if DemoButtonAction(rawValue: draft.actionID) != nil {
+                        draft.actionID = ""
+                    }
+                } else {
+                    draft.actionID = newAction
+                }
+            }
+            .navigationTitle("Edit Button Properties")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button(action: save) {
+                    Text("Save Changes")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding()
+                .background(.regularMaterial)
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func save() {
+        guard let updatedJSON = draft.applying(to: json) else { return }
         onSave(updatedJSON)
         dismiss()
     }
@@ -616,6 +738,59 @@ private struct ImagePropertiesDraft {
     }
 }
 
+private struct ButtonPropertiesDraft {
+    var title: String
+    var systemImage: String
+    var actionID: String
+
+    init(json: String) {
+        let data = Data(json.utf8)
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let root = object?["root"] as? [String: Any]
+        let props = root?["props"] as? [String: Any] ?? [:]
+
+        title = props["title"] as? String ?? ""
+        systemImage = props["systemImage"] as? String ?? ""
+        actionID = root?["actionId"] as? String ?? ""
+    }
+
+    func applying(to json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              var root = object["root"] as? [String: Any],
+              root["type"] as? String == "button" else {
+            return nil
+        }
+
+        var props = root["props"] as? [String: Any] ?? [:]
+        set(title, for: "title", in: &props)
+        set(systemImage, for: "systemImage", in: &props)
+        if props.isEmpty {
+            root.removeValue(forKey: "props")
+        } else {
+            root["props"] = props
+        }
+        set(actionID, for: "actionId", in: &root)
+        object["root"] = root
+
+        guard let updatedData = try? JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else {
+            return nil
+        }
+        return String(data: updatedData, encoding: .utf8)
+    }
+
+    private func set(_ value: String, for key: String, in object: inout [String: Any]) {
+        if value.isEmpty {
+            object.removeValue(forKey: key)
+        } else {
+            object[key] = value
+        }
+    }
+}
+
 private struct PropertyTokenOption: Identifiable {
     let title: String
     let value: String
@@ -650,6 +825,16 @@ private struct PropertyTokenOption: Identifiable {
         PropertyTokenOption(title: "Small", value: "radiusSm"),
         PropertyTokenOption(title: "Medium", value: "radiusMd"),
         PropertyTokenOption(title: "Large", value: "radiusLg")
+    ]
+
+    static let buttonIcons = [
+        PropertyTokenOption(title: "No icon", value: ""),
+        PropertyTokenOption(title: "Cart", value: "cart"),
+        PropertyTokenOption(title: "Filled cart", value: "cart.fill"),
+        PropertyTokenOption(title: "Heart", value: "heart"),
+        PropertyTokenOption(title: "Filled heart", value: "heart.fill"),
+        PropertyTokenOption(title: "Star", value: "star"),
+        PropertyTokenOption(title: "Plus", value: "plus")
     ]
 
     static let directions = [

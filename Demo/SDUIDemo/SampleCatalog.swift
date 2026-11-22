@@ -10,6 +10,11 @@ enum SampleCatalog {
             title: "Stacks",
             samples: [verticalStack, horizontalStack, nestedStack]
         ),
+        SampleSection(
+            id: "buttons",
+            title: "Buttons",
+            samples: [button, normalButton, iconButton]
+        ),
         SampleSection(id: "images", title: "Images", samples: [image, standaloneImage])
     ]
 
@@ -121,6 +126,66 @@ enum SampleCatalog {
                   { "id": "r1b", "type": "text", "props": { "content": "B" } }
                 ] }
             ]
+          }
+        }
+        """#
+    )
+
+    private static let button = ComponentSample(
+        id: "button",
+        title: "Button showcase",
+        json: #"""
+        {
+          "screenId": "button-basic",
+          "structureVersion": 1,
+          "root": {
+            "id": "col", "type": "stack",
+            "layout": { "direction": "vertical", "spacingToken": "spacingMd", "alignment": "leading" },
+            "style": { "paddingToken": "spacingLg" },
+            "children": [
+              { "id": "t", "type": "text", "props": { "content": "Tap the button" } },
+              { "id": "b", "type": "button", "actionId": "checkout", "props": { "title": "Checkout" } },
+              {
+                "id": "b-icon",
+                "type": "button",
+                "actionId": "addToCart",
+                "props": { "title": "Add to cart", "systemImage": "cart.fill" }
+              }
+            ]
+          }
+        }
+        """#
+    )
+
+    private static let normalButton = ComponentSample(
+        id: "button-label",
+        title: "Button properties",
+        json: #"""
+        {
+          "screenId": "button-label",
+          "structureVersion": 1,
+          "root": {
+            "id": "button",
+            "type": "button",
+            "actionId": "checkout",
+            "props": { "title": "Checkout" }
+          }
+        }
+        """#
+    )
+
+    private static let iconButton = ComponentSample(
+        id: "button-icon",
+        title: "Button with icon",
+        json: #"""
+        {
+          "screenId": "button-icon",
+          "structureVersion": 1,
+          "root": {
+            "id": "button",
+            "type": "button",
+            "actionId": "addToCart",
+            "props": { "title": "Add to cart", "systemImage": "cart.fill" }
           }
         }
         """#

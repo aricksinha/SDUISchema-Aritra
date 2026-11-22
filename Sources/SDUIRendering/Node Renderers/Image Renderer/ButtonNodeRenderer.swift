@@ -35,7 +35,18 @@ public struct ButtonNodeRenderer: NodeRenderer {
         context: RenderContext
     ) -> AnyView {
         if let title = node.props?["title"]?.stringValue {
+            if let systemImage = node.props?["systemImage"]?.stringValue {
+                return AnyView(
+                    HStack(spacing: 8) {
+                        Image(systemName: systemImage)
+                        Text(title)
+                    }
+                )
+            }
             return AnyView(Text(title))
+        }
+        if let systemImage = node.props?["systemImage"]?.stringValue {
+            return AnyView(Image(systemName: systemImage))
         }
         let children = context.childViews(of: node)
         guard !children.isEmpty else { return AnyView(EmptyView()) }

@@ -41,4 +41,15 @@ final class RenderContextTests: XCTestCase {
         
         XCTAssertEqual(children.map(\.id), ["first", "second"])
     }
+    
+    func test_dispatch_forwardsActionIDToTheClosure() {
+        var received: [String] = []
+        let context = RenderContext(
+            theme: StaticTheme.placeholder,
+            renderNode: { _ in AnyView(EmptyView()) },
+            dispatchAction: { received.append($0) }
+        )
+        context.dispatch(actionID: "checkout")
+        XCTAssertEqual(received, ["checkout"])
+    }
 }
