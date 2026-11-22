@@ -24,6 +24,7 @@ enum DemoComponentType: String, CaseIterable {
     case stack
     case image
     case button
+    case card
 
     func register(
         in registry: inout RendererRegistry,
@@ -39,6 +40,8 @@ enum DemoComponentType: String, CaseIterable {
             registry.register(ImageNodeRenderer(provider: imageProvider), for: rawValue)
         case .button:
             registry.register(DemoButtonNodeRenderer(onAction: onButtonAction), for: rawValue)
+        case .card:
+            registry.register(DemoCardNodeRenderer(onAction: onButtonAction), for: rawValue)
         }
     }
 }
@@ -46,6 +49,8 @@ enum DemoComponentType: String, CaseIterable {
 /// The demo handles button actions locally so it can show feedback without app-specific behavior in the SDK.
 private struct DemoButtonNodeRenderer: NodeRenderer {
     let onAction: (String) -> Void
+
+    var appliesNodeTapAction: Bool { false }
 
     func makeView(for node: Node, context: RenderContext) -> AnyView {
         let label = makeLabel(for: node, context: context)
@@ -81,6 +86,29 @@ private struct DemoButtonNodeRenderer: NodeRenderer {
         let children = context.childViews(of: node)
         guard !children.isEmpty else { return AnyView(EmptyView()) }
         return AnyView(HStack(spacing: 8) { ForEach(children) { $0.view } })
+    }
+}
+
+private struct DemoCardNodeRenderer: NodeRenderer {
+    let onAction: (String) -> Void
+
+    var appliesNodeTapAction: Bool { false }
+
+    func makeView(for node: Node, context: RenderContext) -> AnyView {
+        let content = StackNodeRenderer()
+            .makeView(for: node, context: context)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        guard let actionID = node.actionID else { return AnyView(content) }
+
+        return AnyView(
+            Button {
+                onAction(actionID)
+            } label: {
+                content
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        )
     }
 }
 

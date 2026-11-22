@@ -36,7 +36,7 @@ struct DemoRootView: View {
         .onChange(of: selection) { newSelection in
             jsonText = SampleCatalog.sample(id: newSelection)?.json ?? ""
         }
-        .alert("Button action", isPresented: $showingActionAlert) {
+        .alert("Demo action", isPresented: $showingActionAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(buttonActionMessage)
@@ -87,12 +87,15 @@ private struct PreviewColumn: View {
     @State private var isShowingPropertiesEditor = false
 
     var body: some View {
-        Group {
-            if sample != nil, let screen = decode(json) {
-                SDUIView(screen: screen, theme: theme, registry: registry)
-            } else {
-                Text("Nothing to preview").foregroundColor(.secondary)
+        ScrollView {
+            Group {
+                if sample != nil, let screen = decode(json) {
+                    SDUIView(screen: screen, theme: theme, registry: registry)
+                } else {
+                    Text("Nothing to preview").foregroundColor(.secondary)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Preview")
@@ -139,11 +142,17 @@ private enum DemoPropertiesEditor {
         case .some(.text):
             TextPropertiesEditor(json: json, onSave: onSave)
         case .some(.stack):
-            StackPropertiesEditor(json: json, onSave: onSave)
+            if CardPropertiesDraft.cardOptions(in: json).isEmpty {
+                StackPropertiesEditor(json: json, onSave: onSave)
+            } else {
+                CardPropertiesEditor(json: json, onSave: onSave)
+            }
         case .some(.image):
             ImagePropertiesEditor(json: json, onSave: onSave)
         case .some(.button):
             ButtonPropertiesEditor(json: json, onSave: onSave)
+        case .some(.card):
+            CardPropertiesEditor(json: json, onSave: onSave)
         case .none:
             Text("Property editing is not available for this component.")
         }
@@ -223,6 +232,169 @@ private struct StackPropertiesEditor: View {
 
     private func save() {
         guard let updatedJSON = draft.applying(to: json) else { return }
+        onSave(updatedJSON)
+        dismiss()
+    }
+}
+
+private struct CardPropertiesEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedCardID: String
+    @State private var drafts: [String: CardPropertiesDraft]
+    @State private var dirtyCardIDs: Set<String> = []
+    @State private var saveErrorMessage: String?
+
+    private let json: String
+    private let cardOptions: [CardOption]
+    private let onSave: (String) -> Void
+
+    init(json: String, onSave: @escaping (String) -> Void) {
+        self.json = json
+        self.onSave = onSave
+        let cardOptions = CardPropertiesDraft.cardOptions(in: json)
+        var drafts: [String: CardPropertiesDraft] = [:]
+        for option in cardOptions {
+            drafts[option.id] = CardPropertiesDraft(json: json, cardID: option.id)
+        }
+        self.cardOptions = cardOptions
+        _selectedCardID = State(initialValue: cardOptions.first?.id ?? "")
+        _drafts = State(initialValue: drafts)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Set the card's layout, appearance, and tap action. Changes appear in the preview after saving.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Select card") {
+                    Picker("Card", selection: $selectedCardID) {
+                        ForEach(cardOptions) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Text("Card ID: \(selectedCardID)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Action") {
+                    TextField("Action ID", text: selectedDraft.actionID)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+
+                Section("Layout") {
+                    Picker("Direction", selection: selectedDraft.layout.direction) {
+                        ForEach(PropertyTokenOption.directions) { option in
+                            Text(option.title).tag(option.value)
+                        }
+                    }
+
+                    Picker("Alignment", selection: selectedDraft.layout.alignment) {
+                        ForEach(PropertyTokenOption.alignments(for: selectedDraft.layout.direction.wrappedValue)) { option in
+                            Text(option.title).tag(option.value)
+                        }
+                    }
+
+                    Picker("Spacing", selection: selectedDraft.layout.spacingToken) {
+                        ForEach(PropertyTokenOption.spacing) { option in
+                            Text(option.title).tag(option.value)
+                        }
+                    }
+                }
+
+                Section("Appearance") {
+                    tokenPicker("Background", selection: selectedDraft.backgroundColorToken, options: PropertyTokenOption.colors)
+                    tokenPicker("Padding", selection: selectedDraft.paddingToken, options: PropertyTokenOption.spacing)
+                    tokenPicker("Corner radius", selection: selectedDraft.radiusToken, options: PropertyTokenOption.radii)
+                    tokenPicker("Border color", selection: selectedDraft.borderColorToken, options: PropertyTokenOption.colors)
+                    tokenPicker("Border width", selection: selectedDraft.borderWidthToken, options: PropertyTokenOption.borderWidths)
+                }
+
+                if let saveErrorMessage {
+                    Section {
+                        Text(saveErrorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Edit Card Properties")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button(action: save) {
+                    Text("Save Changes")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding()
+                .background(.regularMaterial)
+            }
+            .onChange(of: selectedDraft.layout.direction.wrappedValue) { newDirection in
+                let options = PropertyTokenOption.alignments(for: newDirection)
+                let currentAlignment = selectedDraft.layout.alignment.wrappedValue
+                if !options.contains(where: { $0.value == currentAlignment }) {
+                    selectedDraft.layout.alignment.wrappedValue = ""
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var selectedDraft: Binding<CardPropertiesDraft> {
+        Binding(
+            get: {
+                drafts[selectedCardID] ?? CardPropertiesDraft(json: json, cardID: selectedCardID)
+            },
+            set: {
+                drafts[selectedCardID] = $0
+                dirtyCardIDs.insert(selectedCardID)
+                saveErrorMessage = nil
+            }
+        )
+    }
+
+    private func tokenPicker(
+        _ title: String,
+        selection: Binding<String>,
+        options: [PropertyTokenOption]
+    ) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(options) { option in
+                Text(option.title).tag(option.value)
+            }
+        }
+    }
+
+    private func save() {
+        guard !dirtyCardIDs.isEmpty else {
+            dismiss()
+            return
+        }
+
+        var updatedJSON = json
+        for option in cardOptions where dirtyCardIDs.contains(option.id) {
+            guard let draft = drafts[option.id],
+                  let nextJSON = draft.applying(to: updatedJSON) else {
+                saveErrorMessage = "Could not save changes for card \(option.id). No changes were applied."
+                return
+            }
+            updatedJSON = nextJSON
+        }
+
         onSave(updatedJSON)
         dismiss()
     }
@@ -608,7 +780,11 @@ private struct StackPropertiesDraft {
         let data = Data(json.utf8)
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let root = object?["root"] as? [String: Any]
-        let layout = root?["layout"] as? [String: Any] ?? [:]
+        self.init(node: root ?? [:])
+    }
+
+    init(node: [String: Any]) {
+        let layout = node["layout"] as? [String: Any] ?? [:]
         let candidateDirection = layout["direction"] as? String ?? "vertical"
         let direction = PropertyTokenOption.directions.contains { $0.value == candidateDirection }
             ? candidateDirection
@@ -621,11 +797,11 @@ private struct StackPropertiesDraft {
         spacingToken = layout["spacingToken"] as? String ?? ""
     }
 
-    func applying(to json: String) -> String? {
+    func applying(to json: String, componentType: String = "stack") -> String? {
         guard let data = json.data(using: .utf8),
               var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               var root = object["root"] as? [String: Any],
-              root["type"] as? String == "stack",
+              root["type"] as? String == componentType,
               PropertyTokenOption.directions.contains(where: { $0.value == direction }) else {
             return nil
         }
@@ -652,6 +828,180 @@ private struct StackPropertiesDraft {
         } else {
             object[key] = value
         }
+    }
+}
+
+private struct CardPropertiesDraft {
+    private let cardID: String?
+    var layout: StackPropertiesDraft
+    var actionID: String
+    var backgroundColorToken: String
+    var paddingToken: String
+    var radiusToken: String
+    var borderColorToken: String
+    var borderWidthToken: String
+
+    init(json: String, cardID: String? = nil) {
+        let data = Data(json.utf8)
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let root = object?["root"] as? [String: Any]
+        let node: [String: Any]
+        if let cardID, let selectedNode = DemoNodeJSON.findNode(withID: cardID, in: root ?? [:]) {
+            node = selectedNode
+        } else {
+            node = root ?? [:]
+        }
+        let style = node["style"] as? [String: Any] ?? [:]
+
+        self.cardID = cardID
+        layout = StackPropertiesDraft(node: node)
+        actionID = node["actionId"] as? String ?? ""
+        backgroundColorToken = style["backgroundColorToken"] as? String ?? ""
+        paddingToken = style["paddingToken"] as? String ?? ""
+        radiusToken = style["radiusToken"] as? String ?? ""
+        borderColorToken = style["borderColorToken"] as? String ?? ""
+        borderWidthToken = style["borderWidthToken"] as? String ?? ""
+    }
+
+    func applying(to json: String) -> String? {
+        guard PropertyTokenOption.directions.contains(where: { $0.value == layout.direction }),
+              let data = json.data(using: .utf8),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              var root = object["root"] as? [String: Any] else {
+            return nil
+        }
+
+        let didUpdate: Bool
+        if let cardID {
+            didUpdate = DemoNodeJSON.updateNode(withID: cardID, in: &root) { node in
+                apply(to: &node)
+            }
+        } else {
+            didUpdate = apply(to: &root)
+        }
+        guard didUpdate else { return nil }
+        object["root"] = root
+
+        guard let updatedData = try? JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else {
+            return nil
+        }
+        return String(data: updatedData, encoding: .utf8)
+    }
+
+    static func cardOptions(in json: String) -> [CardOption] {
+        guard let data = json.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let root = object["root"] as? [String: Any] else {
+            return []
+        }
+        return DemoNodeJSON.cardOptions(in: root)
+    }
+
+    private func apply(to node: inout [String: Any]) -> Bool {
+        guard node["type"] as? String == "card" else { return false }
+
+        var layoutObject = node["layout"] as? [String: Any] ?? [:]
+        layoutObject["direction"] = layout.direction
+        set(layout.alignment, for: "alignment", in: &layoutObject)
+        set(layout.spacingToken, for: "spacingToken", in: &layoutObject)
+        node["layout"] = layoutObject
+
+        set(actionID, for: "actionId", in: &node)
+        var style = node["style"] as? [String: Any] ?? [:]
+        set(backgroundColorToken, for: "backgroundColorToken", in: &style)
+        set(paddingToken, for: "paddingToken", in: &style)
+        set(radiusToken, for: "radiusToken", in: &style)
+        set(borderColorToken, for: "borderColorToken", in: &style)
+        set(borderWidthToken, for: "borderWidthToken", in: &style)
+        if style.isEmpty {
+            node.removeValue(forKey: "style")
+        } else {
+            node["style"] = style
+        }
+        return true
+    }
+
+    private func set(_ value: String, for key: String, in object: inout [String: Any]) {
+        if value.isEmpty {
+            object.removeValue(forKey: key)
+        } else {
+            object[key] = value
+        }
+    }
+}
+
+private struct CardOption: Identifiable {
+    let id: String
+    let title: String
+
+    var label: String { "\(id) - \(title)" }
+}
+
+private enum DemoNodeJSON {
+    static func findNode(withID id: String, in root: [String: Any]) -> [String: Any]? {
+        if root["id"] as? String == id { return root }
+        for child in root["children"] as? [[String: Any]] ?? [] {
+            if let match = findNode(withID: id, in: child) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    static func updateNode(
+        withID id: String,
+        in node: inout [String: Any],
+        update: (inout [String: Any]) -> Bool
+    ) -> Bool {
+        if node["id"] as? String == id {
+            return update(&node)
+        }
+        guard var children = node["children"] as? [Any] else { return false }
+        for index in children.indices {
+            guard var child = children[index] as? [String: Any] else { continue }
+            if updateNode(withID: id, in: &child, update: update) {
+                children[index] = child
+                node["children"] = children
+                return true
+            }
+        }
+        return false
+    }
+
+    static func cardOptions(in root: [String: Any]) -> [CardOption] {
+        var options: [CardOption] = []
+        var seenIDs = Set<String>()
+
+        func firstText(in node: [String: Any]) -> String? {
+            if node["type"] as? String == "text",
+               let props = node["props"] as? [String: Any],
+               let content = props["content"] as? String {
+                return content
+            }
+            for child in node["children"] as? [[String: Any]] ?? [] {
+                if let content = firstText(in: child) {
+                    return content
+                }
+            }
+            return nil
+        }
+
+        func collectCards(in node: [String: Any]) {
+            if node["type"] as? String == "card",
+               let id = node["id"] as? String,
+               seenIDs.insert(id).inserted {
+                options.append(CardOption(id: id, title: firstText(in: node) ?? "Card"))
+            }
+            for child in node["children"] as? [[String: Any]] ?? [] {
+                collectCards(in: child)
+            }
+        }
+
+        collectCards(in: root)
+        return options
     }
 }
 
@@ -825,6 +1175,12 @@ private struct PropertyTokenOption: Identifiable {
         PropertyTokenOption(title: "Small", value: "radiusSm"),
         PropertyTokenOption(title: "Medium", value: "radiusMd"),
         PropertyTokenOption(title: "Large", value: "radiusLg")
+    ]
+
+    static let borderWidths = [
+        PropertyTokenOption(title: "Default", value: ""),
+        PropertyTokenOption(title: "Thin", value: "borderThin"),
+        PropertyTokenOption(title: "Thick", value: "borderThick")
     ]
 
     static let buttonIcons = [
