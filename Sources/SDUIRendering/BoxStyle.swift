@@ -18,30 +18,32 @@ struct BoxStyle: Equatable {
     let backgroundColor: Color?
     let cornerRadius: CGFloat?
     let borderColor: Color?
-    
+    let borderWidth: CGFloat?
+
     static func resolve(_ style: StyleRef?, using theme: Theme) -> BoxStyle? {
         guard let style else { return nil }
         let box = BoxStyle(
             padding: style.paddingToken.map { theme.spacing(for: SpacingToken($0)) },
             backgroundColor: style.backgroundColorToken.map { theme.color(for: ColorToken($0)) },
             cornerRadius: style.radiusToken.map { theme.radius(for: RadiusToken($0)) },
-            borderColor: style.borderColorToken.map { theme.color(for: ColorToken($0)) }
+            borderColor: style.borderColorToken.map { theme.color(for: ColorToken($0)) },
+            borderWidth: style.borderWidthToken.map { theme.borderWidth(for: BorderWidthToken($0)) }
         )
         return box.isEmpty ? nil : box
     }
-    
+
     var isEmpty: Bool {
-        padding == nil && backgroundColor == nil && cornerRadius == nil && borderColor == nil
+        padding == nil && backgroundColor == nil && cornerRadius == nil
+            && borderColor == nil && borderWidth == nil
     }
 }
 
-/// Applies a `BoxStyle`. Order matters: padding first, so the background and border surround the padded content, not the bare content.
-/// The radius shapes the background and border but does NOT clip the content. Clipping would cut off overflowing content and shadows.Components that need clipping, like images, do it themselves.
 struct BoxStyleModifier: ViewModifier {
     let box: BoxStyle
-    
-    /// no border width token yet  so a border is always 1pt.If design needs variable widths, that's a new `StyleRef` field,which is an additive, non-breaking change.
-    private let borderWidth: CGFloat = 1
+
+    /// Used when the server sets a border color but no width token, so
+    /// payloads written before `borderWidthToken` existed look the same.
+    static let defaultBorderWidth: CGFloat = 1
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: box.cornerRadius ?? 0, style: .continuous)
@@ -50,7 +52,7 @@ struct BoxStyleModifier: ViewModifier {
             .background(box.backgroundColor ?? .clear, in: shape)
             .overlay {
                 if let borderColor = box.borderColor {
-                    shape.strokeBorder(borderColor, lineWidth: borderWidth)
+                    shape.strokeBorder(borderColor, lineWidth: box.borderWidth ?? Self.defaultBorderWidth)
                 }
             }
     }

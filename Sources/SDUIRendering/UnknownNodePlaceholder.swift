@@ -50,4 +50,7 @@ public struct UnknownNodePlaceholder: NodeRenderer {
                 .background(Color.yellow.opacity(0.25))
         )
     }
+    
+    /// A component we don't understand must never fire server-defined actions.
+    public var appliesNodeTapAction: Bool { false }
 }

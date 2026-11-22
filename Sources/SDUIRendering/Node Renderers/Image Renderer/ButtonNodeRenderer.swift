@@ -30,6 +30,9 @@ public struct ButtonNodeRenderer: NodeRenderer {
         )
     }
     
+    /// because it already wires its own tap and a second one would double-fire:
+    public var appliesNodeTapAction: Bool { false }
+    
     private func makeLabel(
         for node: Node,
         context: RenderContext

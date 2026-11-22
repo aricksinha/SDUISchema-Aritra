@@ -36,14 +36,14 @@ final class BoxStyleTests: XCTestCase {
         )
         XCTAssertEqual(
             BoxStyle.resolve(style, using: theme),
-            BoxStyle(padding: 8, backgroundColor: .red, cornerRadius: 4, borderColor: .blue)
+            BoxStyle(padding: 8, backgroundColor: .red, cornerRadius: 4, borderColor: .blue, borderWidth: nil)
         )
     }
 
     func test_onlySpecifiedFields_areSet() {
         XCTAssertEqual(
             BoxStyle.resolve(StyleRef(paddingToken: "md"), using: theme),
-            BoxStyle(padding: 8, backgroundColor: nil, cornerRadius: nil, borderColor: nil)
+            BoxStyle(padding: 8, backgroundColor: nil, cornerRadius: nil, borderColor: nil, borderWidth: nil)
         )
     }
 
@@ -54,5 +54,21 @@ final class BoxStyleTests: XCTestCase {
         )
         XCTAssertEqual(box?.padding, 0)
         XCTAssertEqual(box?.backgroundColor, .clear)
+    }
+    
+    func test_resolve_borderWidth_isNilWhenNotSpecified_andResolvedWhenSpecified() {
+        let theme = StaticTheme(colors: ["accent": .blue], borderWidths: ["thick": 3])
+
+        let colorOnly = BoxStyle.resolve(StyleRef(borderColorToken: "accent"), using: theme)
+        XCTAssertNil(colorOnly?.borderWidth)
+
+        let withWidth = BoxStyle.resolve(StyleRef(borderColorToken: "accent", borderWidthToken: "thick"), using: theme)
+        XCTAssertEqual(withWidth?.borderWidth, 3)
+    }
+
+    func test_resolve_widthTokenAlone_isNotEmpty_butTypographyOnlyIs() {
+        let theme = StaticTheme(borderWidths: ["thick": 3])
+        XCTAssertNotNil(BoxStyle.resolve(StyleRef(borderWidthToken: "thick"), using: theme))
+        XCTAssertNil(BoxStyle.resolve(StyleRef(fontToken: "body"), using: theme))
     }
 }

@@ -22,6 +22,7 @@ public protocol Theme {
     func font(for token: FontToken) -> Font
     func spacing(for token: SpacingToken) -> CGFloat
     func radius(for token: RadiusToken) -> CGFloat
+    func borderWidth(for token: BorderWidthToken) -> CGFloat /// for card
 }
 
 /// Every method gets a fallback so an unresolvable token — a name  the server sent that this theme doesn't define, which WILL  happen given that token names are an open, ever-growing vocabulary on the wire — degrades to something
@@ -30,13 +31,21 @@ public extension Theme {
     func color(for token: ColorToken?) -> Color {
         token.map(color(for:)) ?? .clear
     }
+    
     func font(for token: FontToken?) -> Font {
         token.map(font(for:)) ?? .body
     }
+    
     func spacing(for token: SpacingToken?) -> CGFloat {
         token.map(spacing(for:)) ?? 0
     }
+    
     func radius(for token: RadiusToken?) -> CGFloat {
         token.map(radius(for:)) ?? 0
+    }
+    
+    func borderWidth(for token: BorderWidthToken) -> CGFloat { 0 }
+    func borderWidth(for token: BorderWidthToken?) -> CGFloat {
+        token.map(borderWidth(for:)) ?? 0
     }
 }

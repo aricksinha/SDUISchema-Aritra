@@ -7,12 +7,12 @@
 		<key>SDUIDesignSystem.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
-			<integer>1</integer>
+			<integer>0</integer>
 		</dict>
 		<key>SDUIKit-Package.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
-			<integer>0</integer>
+			<integer>1</integer>
 		</dict>
 		<key>SDUIRendering.xcscheme_^#shared#^_</key>
 		<dict>

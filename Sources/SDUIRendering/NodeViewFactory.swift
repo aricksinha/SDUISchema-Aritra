@@ -26,12 +26,14 @@ func makeNodeView(
         },
         dispatchAction: onAction
     )
-    let view = registry.renderer(for: node.type).makeView(for: node, context: context)
+    let renderer = registry.renderer(for: node.type)
+    var view = renderer.makeView(for: node, context: context)
 
-    // Unknown types get no box. In release the placeholder is empty,
-    // and a padded, colored empty view would show up as a stray
-    // rectangle on a real user's screen.
-    guard registry.isRegistered(node.type),
-          let box = BoxStyle.resolve(node.style, using: theme) else { return view }
-    return AnyView(view.modifier(BoxStyleModifier(box: box)))
+    if let box = BoxStyle.resolve(node.style, using: theme) {
+        view = AnyView(view.modifier(BoxStyleModifier(box: box)))
+    }
+    if let actionID = node.actionID, renderer.appliesNodeTapAction {
+        view = AnyView(view.modifier(TapActionModifier(actionID: actionID, dispatch: onAction)))
+    }
+    return view
 }

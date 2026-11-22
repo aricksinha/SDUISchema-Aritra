@@ -14,23 +14,29 @@ public struct StaticTheme: Theme {
     private let fonts: [FontToken: Font]
     private let spacings: [SpacingToken: CGFloat]
     private let radii: [RadiusToken: CGFloat]
+    private let borderWidths: [BorderWidthToken: CGFloat]
     
     public init(
         colors: [ColorToken: Color] = [:],
         fonts: [FontToken: Font] = [:],
         spacings: [SpacingToken: CGFloat] = [:],
-        radii: [RadiusToken: CGFloat] = [:]
+        radii: [RadiusToken: CGFloat] = [:],
+        borderWidths: [BorderWidthToken: CGFloat] = [:]
     ) {
         self.colors = colors
         self.fonts = fonts
         self.spacings = spacings
         self.radii = radii
+        self.borderWidths = borderWidths
     }
     
     public func color(for token: ColorToken) -> Color { colors[token] ?? .clear }
     public func font(for token: FontToken) -> Font { fonts[token] ?? .body }
     public func spacing(for token: SpacingToken) -> CGFloat { spacings[token] ?? 0 }
     public func radius(for token: RadiusToken) -> CGFloat { radii[token] ?? 0 }
+    public func borderWidth(for token: BorderWidthToken) -> CGFloat {
+        borderWidths[token] ?? 0
+    }
 }
 
 /// A minimal starter catalog so the SDK renders something sane out
@@ -60,6 +66,10 @@ public extension StaticTheme {
             "radiusSm": 4,
             "radiusMd": 8,
             "radiusLg": 16
+        ],
+        borderWidths: [
+            "borderThin": 1,
+            "borderThick": 2
         ]
     )
 }

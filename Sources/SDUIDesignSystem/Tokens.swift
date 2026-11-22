@@ -48,8 +48,10 @@ public enum ColorCategory {}
 public enum FontCategory {}
 public enum SpacingCategory {}
 public enum RadiusCategory {}
+public enum BorderWidthCategory {}
 
 public typealias ColorToken = Token<ColorCategory>
 public typealias FontToken = Token<FontCategory>
 public typealias SpacingToken = Token<SpacingCategory>
 public typealias RadiusToken = Token<RadiusCategory>
+public typealias BorderWidthToken = Token<BorderWidthCategory>

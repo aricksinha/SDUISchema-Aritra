@@ -18,6 +18,7 @@ public struct StyleRef: Codable, Equatable {
     public let paddingToken: String?
     public let radiusToken: String?
     public let borderColorToken: String?
+    public let borderWidthToken: String? /// for rendering card
 
     public init(
         backgroundColorToken: String? = nil,
@@ -25,7 +26,8 @@ public struct StyleRef: Codable, Equatable {
         fontToken: String? = nil,
         paddingToken: String? = nil,
         radiusToken: String? = nil,
-        borderColorToken: String? = nil
+        borderColorToken: String? = nil,
+        borderWidthToken: String? = nil
     ) {
         self.backgroundColorToken = backgroundColorToken
         self.textColorToken = textColorToken
@@ -33,6 +35,7 @@ public struct StyleRef: Codable, Equatable {
         self.paddingToken = paddingToken
         self.radiusToken = radiusToken
         self.borderColorToken = borderColorToken
+        self.borderWidthToken = borderWidthToken
     }
 }
 
