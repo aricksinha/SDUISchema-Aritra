@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import SDUISchema
 import SDUIDesignSystem
@@ -28,6 +29,7 @@ enum DemoComponentType: String, CaseIterable {
 
     func register(
         in registry: inout RendererRegistry,
+        showsDiagnostics: Bool,
         onButtonAction: @escaping (String) -> Void
     ) {
         switch self {
@@ -36,12 +38,72 @@ enum DemoComponentType: String, CaseIterable {
         case .stack:
             registry.register(StackNodeRenderer(), for: rawValue)
         case .image:
-            let imageProvider = AsyncImageViewProvider()
-            registry.register(ImageNodeRenderer(provider: imageProvider), for: rawValue)
+            registry.register(DemoImageNodeRenderer(showsDiagnostics: showsDiagnostics), for: rawValue)
         case .button:
             registry.register(DemoButtonNodeRenderer(onAction: onButtonAction), for: rawValue)
         case .card:
             registry.register(DemoCardNodeRenderer(onAction: onButtonAction), for: rawValue)
+        }
+    }
+}
+
+private struct DemoImageNodeRenderer: NodeRenderer {
+    let showsDiagnostics: Bool
+
+    func makeView(for node: Node, context: RenderContext) -> AnyView {
+        guard let rawURL = node.props?["url"]?.stringValue,
+              let url = URL(string: rawURL),
+              let scheme = url.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https"),
+              url.host != nil else {
+            return AnyView(EmptyView())
+        }
+
+        let contentMode: ContentMode = node.props?["contentMode"]?.stringValue == "fill" ? .fill : .fit
+        let nodeID = node.id
+        return AnyView(
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .empty:
+                    ProgressView()
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: contentMode)
+                case .failure(let error):
+                    imageFailure(nodeID: nodeID, url: rawURL, error: error)
+                @unknown default:
+                    imageFailure(
+                        nodeID: nodeID,
+                        url: rawURL,
+                        error: URLError(.unknown)
+                    )
+                }
+            }
+        )
+    }
+
+    private func imageFailure(nodeID: String, url: String, error: Error) -> some View {
+        Group {
+            if showsDiagnostics {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Image failed to load", systemImage: "exclamationmark.triangle")
+                        .font(.caption.weight(.semibold))
+                    Text("Node ID: \(nodeID)")
+                    Text("JSON field: props.url")
+                    Text("URL: \(url)")
+                    Text("Cause: \(error.localizedDescription)")
+                    Text("Resolution: verify the URL is reachable, returns image data, and is allowed by the app's network security settings.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            } else {
+                Label("Image unavailable", systemImage: "photo")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(10)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            }
         }
     }
 }
@@ -122,10 +184,19 @@ enum DemoCompositionRoot {
         .placeholder
     }
 
-    static func makeRegistry(onButtonAction: @escaping (String) -> Void = { _ in }) -> RendererRegistry {
-        var registry = RendererRegistry()
+    static func makeRegistry(
+        showsDiagnostics: Bool = UnknownNodePlaceholder.defaultShowsDiagnostics,
+        onButtonAction: @escaping (String) -> Void = { _ in }
+    ) -> RendererRegistry {
+        var registry = RendererRegistry(
+            fallback: UnknownNodePlaceholder(showsDiagnostics: showsDiagnostics)
+        )
         for component in DemoComponentType.allCases {
-            component.register(in: &registry, onButtonAction: onButtonAction)
+            component.register(
+                in: &registry,
+                showsDiagnostics: showsDiagnostics,
+                onButtonAction: onButtonAction
+            )
         }
         return registry
     }

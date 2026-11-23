@@ -5,10 +5,28 @@ import SDUISchema
 import SDUIDesignSystem
 import SDUIRendering
 
+private enum DemoEnvironment: String, CaseIterable, Identifiable {
+    case production
+    case debug
+
+    var id: String { rawValue }
+    var title: String { self == .production ? "Production" : "Debug" }
+    var showsDiagnostics: Bool { self == .debug }
+
+    static var initial: DemoEnvironment {
+        #if DEBUG
+        .debug
+        #else
+        .production
+        #endif
+    }
+}
+
 struct DemoRootView: View {
     @State private var selection: ComponentSample.ID? = SampleCatalog.all.first?.id
     @State private var jsonText = SampleCatalog.all.first?.json ?? ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var environment = DemoEnvironment.initial
     @State private var showingActionAlert = false
     @State private var buttonActionMessage = ""
     @State private var cartItemCount = 0
@@ -24,9 +42,11 @@ struct DemoRootView: View {
                 sample: SampleCatalog.sample(id: selection),
                 json: $jsonText,
                 theme: theme,
-                registry: DemoCompositionRoot.makeRegistry { actionID in
-                    handleButtonAction(actionID)
-                }
+                environment: $environment,
+                registry: DemoCompositionRoot.makeRegistry(
+                    showsDiagnostics: environment.showsDiagnostics,
+                    onButtonAction: handleButtonAction
+                )
             )
                 .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 600)
         } detail: {
@@ -82,20 +102,54 @@ private struct PreviewColumn: View {
     let sample: ComponentSample?
     @Binding var json: String
     let theme: Theme
+    @Binding var environment: DemoEnvironment
     let registry: RendererRegistry
 
     @State private var isShowingPropertiesEditor = false
 
     var body: some View {
-        ScrollView {
-            Group {
-                if sample != nil, let screen = decode(json) {
-                    SDUIView(screen: screen, theme: theme, registry: registry)
-                } else {
-                    Text("Nothing to preview").foregroundColor(.secondary)
+        VStack(spacing: 0) {
+            HStack {
+                Text("Environment")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Picker("Environment", selection: $environment) {
+                    ForEach(DemoEnvironment.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
                 }
+                .pickerStyle(.menu)
+                .accessibilityLabel("Preview environment")
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            ScrollView {
+                Group {
+                    switch previewState {
+                    case .noSelection:
+                        Text("Select a sample to preview.")
+                            .foregroundStyle(.secondary)
+                    case .invalid(let diagnostic):
+                        if environment.showsDiagnostics {
+                            diagnosticView([diagnostic])
+                        } else {
+                            productionPlaceholder
+                        }
+                    case .ready(let screen, let issues):
+                        VStack(alignment: .leading, spacing: 12) {
+                            if !issues.isEmpty {
+                                issueSummary(issues)
+                            }
+                            SDUIView(screen: screen, theme: theme, registry: registry)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Preview")
@@ -116,14 +170,750 @@ private struct PreviewColumn: View {
         }
     }
 
+    private var previewState: DemoPreviewState {
+        guard sample != nil else { return .noSelection }
+
+        let reporter = DemoDecodeFailureCollector()
+        let decoder = JSONDecoder()
+        decoder.userInfo[.decodeFailureReporter] = reporter
+
+        do {
+            let screen = try decoder.decode(Screen.self, from: Data(json.utf8))
+            let scan = Self.renderingDiagnostics(in: screen.root, json: json, registry: registry)
+            let decodeIssues = reporter.failures.compactMap { failure -> DemoDiagnostic? in
+                guard !scan.failedNodeDecodes.contains(failure) else { return nil }
+                let basePath = failure.nodeID.flatMap { scan.nodePaths[$0] } ?? "$.root"
+                let field = Self.fieldName(in: failure.reason)
+                let location = field.map { "\(basePath).\($0)" } ?? basePath
+                if scan.issues.contains(where: {
+                    $0.location == location || $0.location.hasPrefix(location + ".")
+                }) {
+                    return nil
+                }
+                return DemoDiagnostic(
+                    category: "Invalid node data",
+                    location: location,
+                    nodeID: failure.nodeID,
+                    nodeType: failure.nodeType,
+                    cause: failure.reason,
+                    resolution: Self.resolution(forDecodedField: field)
+                )
+            }
+            let issues = Self.unique(scan.issues + decodeIssues)
+            return .ready(screen, issues)
+        } catch {
+            return .invalid(Self.describe(error))
+        }
+    }
+
     private var canEditProperties: Bool {
         guard let screen = decode(json) else { return false }
         return DemoPropertiesEditor.supports(screen.root.type)
     }
 
-    // D1 only: D2 replaces this with a result type that carries errors.
     private func decode(_ json: String) -> Screen? {
         try? JSONDecoder().decode(Screen.self, from: Data(json.utf8))
+    }
+
+    @ViewBuilder
+    private var productionPlaceholder: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.title2)
+            Text("This UI is unavailable.")
+                .font(.headline)
+            Text("Check the screen configuration and try again.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .padding()
+    }
+
+    @ViewBuilder
+    private func issueSummary(_ issues: [DemoDiagnostic]) -> some View {
+        if environment.showsDiagnostics {
+            diagnosticView(issues)
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                Text("Some content is unavailable.")
+                    .font(.footnote)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func diagnosticView(_ issues: [DemoDiagnostic]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("UI diagnostics (\(issues.count))", systemImage: "ladybug")
+                .font(.headline)
+            ForEach(issues) { issue in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(issue.category)
+                        .font(.subheadline.weight(.semibold))
+                    diagnosticField("JSON location", issue.location)
+                    if let nodeID = issue.nodeID {
+                        diagnosticField("Node", "\(nodeTypeLabel(issue.nodeType)) · \(nodeID)")
+                    }
+                    diagnosticField("Why this happened", issue.cause)
+                    diagnosticField("Resolution", issue.resolution)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        .padding()
+    }
+
+    private func diagnosticField(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func nodeTypeLabel(_ nodeType: String?) -> String {
+        nodeType ?? "unknown type"
+    }
+
+    private static func renderingDiagnostics(
+        in root: Node,
+        json: String,
+        registry: RendererRegistry
+    ) -> DiagnosticScan {
+        var issues: [DemoDiagnostic] = []
+        var nodePaths: [String: String] = [:]
+        var failedNodeDecodes: [DecodeFailure] = []
+
+        func add(
+            _ category: String,
+            _ location: String,
+            _ node: Node,
+            _ cause: String,
+            _ resolution: String
+        ) {
+            issues.append(
+                DemoDiagnostic(
+                    category: category,
+                    location: location,
+                    nodeID: node.id,
+                    nodeType: node.type,
+                    cause: cause,
+                    resolution: resolution
+                )
+            )
+        }
+
+        func rawFieldDiagnostics(in json: String) -> [DemoDiagnostic] {
+            guard let data = json.data(using: .utf8),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let root = object["root"] as? [String: Any] else {
+                return []
+            }
+
+            var issues: [DemoDiagnostic] = []
+
+            func add(
+                _ category: String,
+                _ location: String,
+                _ node: [String: Any],
+                _ cause: String,
+                _ resolution: String
+            ) {
+                issues.append(
+                    DemoDiagnostic(
+                        category: category,
+                        location: location,
+                        nodeID: node["id"] as? String,
+                        nodeType: node["type"] as? String,
+                        cause: cause,
+                        resolution: resolution
+                    )
+                )
+            }
+
+            func inspect(_ value: Any, at location: String) {
+                guard let node = value as? [String: Any] else { return }
+
+                if let rawActionID = node["actionId"], !(rawActionID is String) {
+                    add(
+                        "Action ID has the wrong type",
+                        "\(location).actionId",
+                        node,
+                        "Node decoding silently drops actionId because it is not a string, so the intended action cannot run.",
+                        "Set actionId to a string such as \"checkout\", \"addToCart\", or \"showMessage\"."
+                    )
+                }
+
+                if let rawBinding = node["dataBinding"], !(rawBinding is String) {
+                    add(
+                        "Data binding has the wrong type",
+                        "\(location).dataBinding",
+                        node,
+                        "Node decoding silently drops dataBinding because it is not a string.",
+                        "Set dataBinding to a string path, or remove it. Note that this demo does not yet resolve data-binding paths."
+                    )
+                }
+
+                if let rawLayout = node["layout"] {
+                    if let layout = rawLayout as? [String: Any] {
+                        if let rawDirection = layout["direction"] {
+                            if let direction = rawDirection as? String {
+                                if !["vertical", "horizontal", "overlay"].contains(direction) {
+                                    add(
+                                        "Layout direction is unsupported",
+                                        "\(location).layout.direction",
+                                        node,
+                                        "The schema accepts only vertical, horizontal, and overlay. An invalid direction causes the entire optional layout to be discarded.",
+                                        "Replace '\(direction)' with \"vertical\", \"horizontal\", or \"overlay\"."
+                                    )
+                                }
+                            } else {
+                                add(
+                                    "Layout direction has the wrong type",
+                                    "\(location).layout.direction",
+                                    node,
+                                    "Layout.direction must be a string; otherwise the decoder discards the entire layout.",
+                                    "Use a quoted string: \"vertical\", \"horizontal\", or \"overlay\"."
+                                )
+                            }
+                        } else {
+                            add(
+                                "Layout direction is missing",
+                                "\(location).layout.direction",
+                                node,
+                                "Direction is required whenever a layout object is present. The decoder discards the entire layout when it is missing.",
+                                "Add direction with exactly one of: \"vertical\", \"horizontal\", or \"overlay\"."
+                            )
+                        }
+
+                        if let rawAlignment = layout["alignment"] {
+                            if let alignment = rawAlignment as? String {
+                                if !["leading", "center", "trailing", "top", "bottom"].contains(alignment) {
+                                    add(
+                                        "Layout alignment is unsupported",
+                                        "\(location).layout.alignment",
+                                        node,
+                                        "The schema does not recognize '\(alignment)', so it discards the entire layout.",
+                                        "Use one of: \"leading\", \"center\", \"trailing\", \"top\", or \"bottom\"."
+                                    )
+                                }
+                            } else {
+                                add(
+                                    "Layout alignment has the wrong type",
+                                    "\(location).layout.alignment",
+                                    node,
+                                    "Layout.alignment must be a string enum value.",
+                                    "Use a quoted alignment value: \"leading\", \"center\", \"trailing\", \"top\", or \"bottom\"."
+                                )
+                            }
+                        }
+
+                        if let rawSpacing = layout["spacingToken"], !(rawSpacing is String) {
+                            add(
+                                "Spacing token has the wrong type",
+                                "\(location).layout.spacingToken",
+                                node,
+                                "spacingToken is a string reference; a non-string value makes the entire layout fail decoding.",
+                                "Use a quoted token name such as \"spacingMd\", or remove spacingToken."
+                            )
+                        }
+                    } else {
+                        add(
+                            "Layout must be an object",
+                            "\(location).layout",
+                            node,
+                            "Layout decoding fails as a whole when its value is not an object.",
+                            "Replace layout with an object containing a direction, for example { \"direction\": \"vertical\" }."
+                        )
+                    }
+                }
+
+                if let rawStyle = node["style"] {
+                    if let style = rawStyle as? [String: Any] {
+                        let styleFields = [
+                            "backgroundColorToken", "textColorToken", "fontToken",
+                            "paddingToken", "radiusToken", "borderColorToken", "borderWidthToken"
+                        ]
+                        for field in styleFields {
+                            if let value = style[field], !(value is String) {
+                                add(
+                                    "Style token has the wrong type",
+                                    "\(location).style.\(field)",
+                                    node,
+                                    "\(field) must be a string token reference. A non-string value causes the whole style object to be discarded.",
+                                    "Replace this value with a quoted token name from the demo theme, or remove the property."
+                                )
+                            }
+                        }
+                    } else {
+                        add(
+                            "Style must be an object",
+                            "\(location).style",
+                            node,
+                            "Style decoding fails as a whole when its value is not an object.",
+                            "Replace style with an object whose values are design-token strings, or remove style."
+                        )
+                    }
+                }
+
+                if let children = node["children"] as? [Any] {
+                    for (index, child) in children.enumerated() {
+                        inspect(child, at: "\(location).children[\(index)]")
+                    }
+                }
+            }
+
+            inspect(root, at: "$.root")
+            return issues
+        }
+
+        func visit(_ node: Node, at location: String) {
+            nodePaths[node.id] = location
+
+            if !registry.isRegistered(node.type) {
+                let registeredTypes = DemoComponentType.allCases
+                    .map(\.rawValue)
+                    .sorted()
+                    .joined(separator: ", ")
+                add(
+                    "No renderer is registered",
+                    "\(location).type",
+                    node,
+                    "The schema decoded successfully, but the demo registry has no renderer for '\(node.type)'. This node renders as an unsupported placeholder in Debug and disappears in Production.",
+                    "Register a renderer for '\(node.type)' in DemoComponentType.register, or change this value to a supported type: \(registeredTypes)."
+                )
+            }
+
+            if node.type == "text", node.props?["content"]?.stringValue == nil {
+                add(
+                    "Text has no content",
+                    "\(location).props.content",
+                    node,
+                    "TextNodeRenderer returns EmptyView when props.content is missing or is not a string.",
+                    "Add a string value, for example \"props\": { \"content\": \"Your text\" }. Keep numberOfLines optional."
+                )
+            }
+
+            if node.type == "text", let props = node.props,
+               let rawLineLimit = props["numberOfLines"] {
+                let lineLimit = rawLineLimit.numberValue
+                let isValidLineLimit = lineLimit.map {
+                    $0.isFinite && $0 >= 1 && $0.rounded(.towardZero) == $0
+                } ?? false
+                if !isValidLineLimit {
+                    add(
+                        "Text line limit is invalid",
+                        "\(location).props.numberOfLines",
+                        node,
+                        "TextNodeRenderer accepts only positive whole-number line limits; this value is ignored.",
+                        "Set numberOfLines to a positive integer such as 1 or 2, or remove the property to allow unlimited lines."
+                    )
+                }
+            }
+
+            if node.type == "image" {
+                let rawURL = node.props?["url"]?.stringValue
+                let components = rawURL.flatMap(URLComponents.init(string:))
+                let scheme = components?.scheme?.lowercased()
+                if components?.host == nil || (scheme != "http" && scheme != "https") {
+                    add(
+                        "Image URL is invalid",
+                        "\(location).props.url",
+                        node,
+                        "ImageNodeRenderer returns EmptyView unless url parses as an absolute URL. The demo image provider expects an http or https URL with a host.",
+                        "Set props.url to a reachable absolute URL such as \"https://example.com/image.jpg\". If the URL is valid but the image still fails, verify network access and that the server returns image data."
+                    )
+                }
+                if let contentMode = node.props?["contentMode"]?.stringValue,
+                   contentMode != "fit", contentMode != "fill" {
+                    add(
+                        "Image content mode is unsupported",
+                        "\(location).props.contentMode",
+                        node,
+                        "The image renderer recognizes only 'fit' and 'fill'; an unknown value silently falls back to fit.",
+                        "Use \"fit\" to show the full image or \"fill\" to crop it to the available bounds."
+                    )
+                }
+            }
+
+            if node.type == "button", node.actionID == nil {
+                add(
+                    "Button has no action",
+                    "\(location).actionId",
+                    node,
+                    "Without actionId, the demo renders the button label as a non-interactive view.",
+                    "Add an actionId handled by the demo, such as \"checkout\", \"addToCart\", or \"showMessage\". Custom IDs are also accepted and shown as demo feedback."
+                )
+            }
+
+            if let layout = node.layout {
+                if let alignment = layout.alignment {
+                    let isAxisCompatible: Bool
+                    switch layout.direction {
+                    case .vertical:
+                        isAxisCompatible = alignment == .leading || alignment == .center || alignment == .trailing
+                    case .horizontal:
+                        isAxisCompatible = alignment == .top || alignment == .center || alignment == .bottom
+                    case .overlay:
+                        isAxisCompatible = true
+                    }
+                    if !isAxisCompatible {
+                        let allowed = layout.direction == .vertical
+                            ? "leading, center, trailing"
+                            : "top, center, bottom"
+                        add(
+                            "Alignment does not match stack direction",
+                            "\(location).layout.alignment",
+                            node,
+                            "The renderer maps '\(alignment.rawValue)' to center for a \(layout.direction.rawValue) stack, so the requested alignment is not applied.",
+                            "For a \(layout.direction.rawValue) stack, choose one of: \(allowed)."
+                        )
+                    }
+                }
+
+                if layout.weight != nil {
+                    add(
+                        "Layout weight is not applied",
+                        "\(location).layout.weight",
+                        node,
+                        "The schema decodes weight, but StackNodeRenderer currently lays out children without consuming it.",
+                        "Remove layout.weight or implement weight-aware sizing in the renderer before relying on it."
+                    )
+                }
+
+                if let token = layout.spacingToken {
+                    if let issue = Self.addTokenIssue(
+                        token,
+                        field: "spacingToken",
+                        location: "\(location).layout.spacingToken",
+                        node: node,
+                        supported: Self.spacingTokens,
+                        fallback: "spacing resolves to 0"
+                    ) {
+                        issues.append(issue)
+                    }
+                }
+            }
+
+            if let style = node.style {
+                let tokenIssues: [(String, String?, Set<String>, String)] = [
+                    ("backgroundColorToken", style.backgroundColorToken, Self.colorTokens, "background resolves to clear"),
+                    ("textColorToken", style.textColorToken, Self.colorTokens, "text color resolves to clear"),
+                    ("borderColorToken", style.borderColorToken, Self.colorTokens, "border color resolves to clear"),
+                    ("fontToken", style.fontToken, Self.fontTokens, "font falls back to body"),
+                    ("paddingToken", style.paddingToken, Self.spacingTokens, "padding resolves to 0"),
+                    ("radiusToken", style.radiusToken, Self.radiusTokens, "corner radius resolves to 0"),
+                    ("borderWidthToken", style.borderWidthToken, Self.borderWidthTokens, "border width resolves to 0")
+                ]
+                for (field, token, supported, fallback) in tokenIssues {
+                    guard let token else { continue }
+                    if let issue = Self.addTokenIssue(
+                        token,
+                        field: field,
+                        location: "\(location).style.\(field)",
+                        node: node,
+                        supported: supported,
+                        fallback: fallback
+                    ) {
+                        issues.append(issue)
+                    }
+                }
+            }
+
+            if node.dataBinding != nil {
+                add(
+                    "Data binding is not resolved by the demo",
+                    "\(location).dataBinding",
+                    node,
+                    "The schema stores dataBinding, but the current demo rendering context does not resolve data paths.",
+                    "Provide concrete values in props for this demo, or add a data-binding resolver before using this field."
+                )
+            }
+
+            if node.accessibility != nil {
+                add(
+                    "Accessibility metadata is not applied",
+                    "\(location).accessibility",
+                    node,
+                    "The schema decodes accessibility metadata, but the current rendering pipeline does not yet apply it as SwiftUI accessibility modifiers.",
+                    "Do not rely on this metadata for VoiceOver behavior until an accessibility decorator is wired into NodeViewFactory."
+                )
+            }
+
+            if node.analytics != nil {
+                add(
+                    "Analytics metadata is not applied",
+                    "\(location).analytics",
+                    node,
+                    "The schema decodes analytics metadata, but no analytics decorator is currently wired into the demo renderer.",
+                    "Use the demo's explicit action callback for observable interactions, or add an analytics decorator before relying on this field."
+                )
+            }
+
+            var childIDLocations: [String: String] = [:]
+            for (index, child) in node.children.enumerated() {
+                let childLocation = "\(location).children[\(index)]"
+                switch child {
+                case .node(let childNode):
+                    if let previousLocation = childIDLocations.updateValue(childLocation, forKey: childNode.id) {
+                        issues.append(
+                            DemoDiagnostic(
+                                category: "Sibling node IDs are duplicated",
+                                location: "\(childLocation).id",
+                                nodeID: childNode.id,
+                                nodeType: childNode.type,
+                                cause: "This ID is already used by a sibling at \(previousLocation). The stack renderer uses child IDs as SwiftUI identity, so duplicates can cause the wrong view to be reused or updated.",
+                                resolution: "Give this node a unique id within its parent's children array, then update any references to that id."
+                            )
+                        )
+                    }
+                    visit(childNode, at: childLocation)
+                case .failed(let failure):
+                    failedNodeDecodes.append(failure)
+                    issues.append(
+                        DemoDiagnostic(
+                            category: "Child node was quarantined",
+                            location: childLocation,
+                            nodeID: failure.nodeID,
+                            nodeType: failure.nodeType,
+                            cause: failure.reason,
+                            resolution: "Correct this child object at \(childLocation). A node must have string id and type fields; ensure optional style, layout, props, and metadata fields match their schemas. The decoder skipped this child but kept its siblings."
+                        )
+                    )
+                }
+            }
+        }
+
+        visit(root, at: "$.root")
+        return DiagnosticScan(
+            issues: Self.unique(rawFieldDiagnostics(in: json) + issues),
+            nodePaths: nodePaths,
+            failedNodeDecodes: failedNodeDecodes
+        )
+    }
+
+    private static let colorTokens: Set<String> = [
+        "accent", "surfacePrimary", "surfaceSecondary", "textPrimary", "textSecondary"
+    ]
+    private static let fontTokens: Set<String> = ["titleLarge", "body", "caption"]
+    private static let spacingTokens: Set<String> = ["spacingSm", "spacingMd", "spacingLg"]
+    private static let radiusTokens: Set<String> = ["radiusSm", "radiusMd", "radiusLg"]
+    private static let borderWidthTokens: Set<String> = ["borderThin", "borderThick"]
+
+    private static func addTokenIssue(
+        _ token: String,
+        field: String,
+        location: String,
+        node: Node,
+        supported: Set<String>,
+        fallback: String
+    ) -> DemoDiagnostic? {
+        guard !supported.contains(token) else { return nil }
+        let validTokens = supported.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
+        return DemoDiagnostic(
+            category: "Design token is not in the demo theme",
+            location: location,
+            nodeID: node.id,
+            nodeType: node.type,
+            cause: "\(field) references '\(token)', which is not defined by the demo theme; \(fallback).",
+            resolution: "Replace '\(token)' with one of \(validTokens), or define it in the theme returned by DemoCompositionRoot.makeTheme() (currently StaticTheme.placeholder)."
+        )
+    }
+
+    private static func describe(_ error: Error) -> DemoDiagnostic {
+        guard let error = error as? DecodingError else {
+            return DemoDiagnostic(
+                category: "Screen could not be decoded",
+                location: "$",
+                cause: error.localizedDescription,
+                resolution: "Verify that the edited JSON is valid and that the top-level object contains screenId, structureVersion, and root."
+            )
+        }
+
+        switch error {
+        case .keyNotFound(let key, let context):
+            let location = path(context.codingPath + [key])
+            return DemoDiagnostic(
+                category: "Required JSON field is missing",
+                location: location,
+                cause: context.debugDescription,
+                resolution: resolutionForMissingKey(key.stringValue, location: location)
+            )
+        case .typeMismatch(let type, let context):
+            let location = path(context.codingPath)
+            return DemoDiagnostic(
+                category: "JSON value has the wrong type",
+                location: location,
+                cause: "\(context.debugDescription) Expected \(type).",
+                resolution: "Change the value at \(location) to the expected JSON type. IDs, component types, screenId, actionId, and token references must be strings; structureVersion must be an integer."
+            )
+        case .valueNotFound(let type, let context):
+            let location = path(context.codingPath)
+            return DemoDiagnostic(
+                category: "Required JSON value is missing",
+                location: location,
+                cause: "\(context.debugDescription) Expected \(type).",
+                resolution: "Provide a non-null value at \(location). For node objects, include string id and type fields."
+            )
+        case .dataCorrupted(let context):
+            let location = path(context.codingPath)
+            return DemoDiagnostic(
+                category: "JSON value is invalid",
+                location: location,
+                cause: context.debugDescription,
+                resolution: resolutionForCorruptedValue(at: location)
+            )
+        @unknown default:
+            return DemoDiagnostic(
+                category: "Screen could not be decoded",
+                location: path(codingPath(error)),
+                cause: error.localizedDescription,
+                resolution: "Check the value and type at this location against the SDUI screen schema."
+            )
+        }
+    }
+
+    private static func codingPath(_ error: DecodingError) -> [CodingKey] {
+        switch error {
+        case .keyNotFound(_, let context),
+             .typeMismatch(_, let context),
+             .valueNotFound(_, let context),
+             .dataCorrupted(let context):
+            return context.codingPath
+        @unknown default:
+            return []
+        }
+    }
+
+    private static func resolutionForMissingKey(_ key: String, location: String) -> String {
+        switch key {
+        case "screenId":
+            return "Add a string screenId at the top level."
+        case "structureVersion":
+            return "Add an integer structureVersion. This demo's sample screens use version 1."
+        case "root":
+            return "Add a root node object with string id and type fields."
+        case "id":
+            return "Add a unique string id to this node so the renderer can preserve its identity."
+        case "type":
+            return "Add a string type matching a registered demo component: \(DemoComponentType.allCases.map(\.rawValue).sorted().joined(separator: ", "))."
+        default:
+            return "Add the required value at \(location) with the type required by the SDUI schema."
+        }
+    }
+
+    private static func resolutionForCorruptedValue(at location: String) -> String {
+        if location.hasSuffix(".layout.direction") {
+            return "Use exactly \"vertical\", \"horizontal\", or \"overlay\" for layout.direction."
+        }
+        if location.hasSuffix(".layout.alignment") {
+            return "Use one of \"leading\", \"center\", \"trailing\", \"top\", or \"bottom\" for layout.alignment."
+        }
+        return "Correct the JSON syntax or use a supported enum value at \(location)."
+    }
+
+    private static func resolution(forDecodedField field: String?) -> String {
+        switch field {
+        case "style":
+            return "Make style an object whose supported token properties are strings, or remove style from this node."
+        case "layout":
+            return "Make layout an object. Use direction vertical, horizontal, or overlay; use a compatible alignment and a string spacingToken."
+        case "props":
+            return "Make props a valid JSON value and use the property names and types required by this node's renderer."
+        case "accessibility":
+            return "Make accessibility an object with string label/hint and boolean isHeader/hidden values, or remove it."
+        case "analytics":
+            return "Make analytics an object with a string eventName and JSON-valued properties, or remove it."
+        case "children":
+            return "Make children an array of node objects. Each child needs string id and type fields."
+        default:
+            return "Check the field's JSON type and spelling against the node schema; remove malformed optional fields if they are not needed."
+        }
+    }
+
+    private static func fieldName(in reason: String) -> String? {
+        guard let separator = reason.firstIndex(of: ":") else { return nil }
+        let candidate = String(reason[..<separator])
+        let knownFields: Set<String> = [
+            "style", "layout", "props", "accessibility", "analytics", "children"
+        ]
+        return knownFields.contains(candidate) ? candidate : nil
+    }
+
+    private static func path(_ codingPath: [CodingKey]) -> String {
+        codingPath.reduce("$") { result, key in
+            if let index = key.intValue {
+                return "\(result)[\(index)]"
+            }
+            return "\(result).\(key.stringValue)"
+        }
+    }
+
+    private static func unique(_ issues: [DemoDiagnostic]) -> [DemoDiagnostic] {
+        var seen = Set<String>()
+        return issues.filter { seen.insert($0.location).inserted }
+    }
+}
+
+private enum DemoPreviewState {
+    case noSelection
+    case invalid(DemoDiagnostic)
+    case ready(Screen, [DemoDiagnostic])
+}
+
+private struct DemoDiagnostic: Identifiable {
+    let category: String
+    let location: String
+    let nodeID: String?
+    let nodeType: String?
+    let cause: String
+    let resolution: String
+
+    var id: String { "\(location)|\(category)|\(cause)" }
+
+    init(
+        category: String,
+        location: String,
+        nodeID: String? = nil,
+        nodeType: String? = nil,
+        cause: String,
+        resolution: String
+    ) {
+        self.category = category
+        self.location = location
+        self.nodeID = nodeID
+        self.nodeType = nodeType
+        self.cause = cause
+        self.resolution = resolution
+    }
+}
+
+private struct DiagnosticScan {
+    let issues: [DemoDiagnostic]
+    let nodePaths: [String: String]
+    let failedNodeDecodes: [DecodeFailure]
+}
+
+private final class DemoDecodeFailureCollector: DecodeFailureReporting {
+    private(set) var failures: [DecodeFailure] = []
+
+    func report(_ failure: DecodeFailure) {
+        failures.append(failure)
     }
 }
 
